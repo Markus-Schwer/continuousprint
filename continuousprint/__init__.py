@@ -9,6 +9,7 @@ from octoprint.access.permissions import Permissions,ADMIN_GROUP,USER_GROUP
 
 from .print_queue import PrintQueue, QueueItem
 from .driver import ContinuousPrintDriver
+from .clear_bed_plugin import ClearBedPlugin
 
 
 QUEUE_KEY = "cp_queue"
@@ -17,6 +18,7 @@ FINISHED_SCRIPT_KEY = "cp_queue_finished"
 RESTART_MAX_RETRIES_KEY = "cp_restart_on_pause_max_restarts"
 RESTART_ON_PAUSE_KEY = "cp_restart_on_pause_enabled"
 RESTART_MAX_TIME_KEY = "cp_restart_on_pause_max_seconds"
+USE_PLUGIN_TO_CLEAR_BED = "cp_use_plugin_to_clear_bed"
 
 class ContinuousprintPlugin(
     octoprint.plugin.SettingsPlugin,
@@ -66,6 +68,7 @@ class ContinuousprintPlugin(
         d[RESTART_MAX_RETRIES_KEY] = 3
         d[RESTART_ON_PAUSE_KEY] = False
         d[RESTART_MAX_TIME_KEY] = 60*60
+        d[USE_PLUGIN_TO_CLEAR_BED] = False
         return d
 
 
@@ -87,7 +90,7 @@ class ContinuousprintPlugin(
     def on_event(self, event, payload):
         if not hasattr(self, "d"): # Sometimes message arrive pre-init
             return
-        
+
         if event == Events.PRINT_DONE:
             self.d.on_print_success()
             self.paused = False
@@ -124,22 +127,33 @@ class ContinuousprintPlugin(
         self._msg("Print cancelled", type="error")
         self._printer.cancel_print()
 
-    def start_print(self, item, clear_bed=True):
-        if clear_bed:
-            self._logger.info("Clearing bed")
-            bed_clearing_script = self._settings.get([CLEARING_SCRIPT_KEY]).split("\n")
-            self._printer.commands(bed_clearing_script, force=True)
-
-        self._msg("Starting print: " + item.name)
+    def clear_bed_success(self, name, plugin, result):
+        self._msg("Successfully cleared bed with plugin: " + name)
+        self._msg("Starting print: " + self.nextItem.name)
         self._msg(type="reload")
         try:
-            self._printer.select_file(item.path, item.sd)
-            self._logger.info(item.path)
+            self._printer.select_file(self.nextItem.path, self.nextItem.sd)
+            self._logger.info(self.nextItem.path)
             self._printer.start_print()
         except InvalidFileLocation:
-            self._msg("File not found: " + item.path, type="error")
+            self._msg("File not found: " + self.nextItem.path, type="error")
         except InvalidFileType:
-            self._msg("File not gcode: " + item.path, type="error")
+            self._msg("File not gcode: " + self.nextItem.path, type="error")
+
+    def clear_bed_error(self, name, plugin, exc):
+        self._msg(name + ": Could not clear bed: " + exc, type="error")
+
+    def start_print(self, item, clear_bed=True):
+        self.nextItem = item
+        if clear_bed:
+            self._logger.info("Clearing bed")
+            if self._settings.get([USE_PLUGIN_TO_CLEAR_BED]):
+                octoprint.plugin.call_plugin(ClearBedPlugin, "clear_bed", callback=self.clear_bed_success, error_callback=self.clear_bed_error)
+            else:
+                bed_clearing_script = self._settings.get([CLEARING_SCRIPT_KEY]).split("\n")
+                self._printer.commands(bed_clearing_script, force=True)
+                self.clear_bed_success(self._identifier, self, None)
+
 
     def state_json(self, changed=None):
         # Values are stored serialized, so we need to create a json string and inject them
@@ -150,21 +164,21 @@ class ContinuousprintPlugin(
                 if i<len(q):# no deletion of last item
                     q[i]["changed"] = True
             q = json.dumps(q)
-    
+
         resp = ('{"active": %s, "status": "%s", "queue": %s}' % (
                 "true" if self.d.active else "false",
                 self.d.status,
                 q
             ))
         return resp
-            
+
     # Listen for resume from printer ("M118 //action:queuego"), only act if actually paused. #from @grtrenchman
     def resume_action_handler(self, comm, line, action, *args, **kwargs):
         if not action == "queuego":
             return
         if self.paused:
             self.d.set_active()
-        
+
     ##~~ APIs
     @octoprint.plugin.BlueprintPlugin.route("/state", methods=["GET"])
     @restricted_access
@@ -212,7 +226,7 @@ class ContinuousprintPlugin(
         count = int(flask.request.form["count"])
         self.q.remove(idx, count)
         return self.state_json(changed=[idx])
-        
+
     @octoprint.plugin.BlueprintPlugin.route("/set_active", methods=["POST"])
     @restricted_access
     def set_active(self):
@@ -262,6 +276,7 @@ class ContinuousprintPlugin(
             cp_restart_on_pause_enabled=self._settings.get_boolean([RESTART_ON_PAUSE_KEY]),
             cp_restart_on_pause_max_seconds=self._settings.get_int([RESTART_MAX_TIME_KEY]),
             cp_restart_on_pause_max_restarts=self._settings.get_int([RESTART_MAX_RETRIES_KEY]),
+            cp_use_plugin_to_clear_bed=self._settings.get([USE_PLUGIN_TO_CLEAR_BED]),
         )
 
     def get_template_configs(self):
@@ -293,7 +308,7 @@ class ContinuousprintPlugin(
                 displayVersion=self._plugin_version,
                 # version check: github repository
                 type="github_release",
-                user="Zinc-OS",
+                user="Markus-Schwer",
                 repo="continuousprint",
                 current=self._plugin_version,
                 stable_branch=dict(
@@ -307,7 +322,7 @@ class ContinuousprintPlugin(
                     )
                 ],
                 # update method: pip
-                pip="https://github.com/Zinc-OS/continuousprint/archive/{target_version}.zip",
+                pip="https://github.com/Markus-Schwer/continuousprint/archive/{target_version}.zip",
             )
         )
     def add_permissions(*args, **kwargs):

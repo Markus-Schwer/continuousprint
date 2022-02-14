@@ -7,19 +7,28 @@
 		There is a special [PAUSE] command that doesn't get sent to the printer but instead indefinatly pauses the queue until the resume button is pressed.<br />
 		<small style="font-size: 0.8em"><b>Note:</b> this doesn't put the printer into a paused state it simply tells the queue to wait.</small>
 	</p>
-	
+
 	<div class="control-group">
         <label class="control-label">Bed cleaning script</label>
         <div class="controls">
             <textarea rows="8" class="input-block-level" data-bind="value: settings.plugins.continuousprint.cp_bed_clearing_script"></textarea>
         </div>
     </div>
-	
+
 	<div class="control-group">
         <label class="control-label">Queue finished script</label>
         <div class="controls">
             <textarea rows="8" class="input-block-level" data-bind="value: settings.plugins.continuousprint.cp_queue_finished_script"></textarea>
         </div>
+    </div>
+
+    <div class="control-group">
+      <label class="control-label">Use plugin for clearing</label>
+      <div class="controls">
+        <label class="checkbox">
+          <input type="checkbox" data-bind="checked: settings.plugins.continuousprint.cp_use_plugin_to_clear_bed"/>
+        </label>
+      </div>
     </div>
 
   <fieldset>
