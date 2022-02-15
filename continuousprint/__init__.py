@@ -129,30 +129,36 @@ class ContinuousprintPlugin(
 
     def clear_bed_success(self, name, plugin, result):
         self._msg("Successfully cleared bed with plugin: " + name)
-        self._msg("Starting print: " + self.nextItem.name)
+        self.start_item(self.nextItem)
+
+    def start_item(self, item):
+        self._msg("Starting print: " + item.name)
         self._msg(type="reload")
         try:
-            self._printer.select_file(self.nextItem.path, self.nextItem.sd)
-            self._logger.info(self.nextItem.path)
+            self._printer.select_file(item.path, item.sd)
+            self._logger.info(item.path)
             self._printer.start_print()
         except InvalidFileLocation:
-            self._msg("File not found: " + self.nextItem.path, type="error")
+            self._msg("File not found: " + item.path, type="error")
         except InvalidFileType:
-            self._msg("File not gcode: " + self.nextItem.path, type="error")
+            self._msg("File not gcode: " + item.path, type="error")
+
 
     def clear_bed_error(self, name, plugin, exc):
         self._msg(name + ": Could not clear bed: " + exc, type="error")
 
     def start_print(self, item, clear_bed=True):
-        self.nextItem = item
         if clear_bed:
             self._logger.info("Clearing bed")
             if self._settings.get([USE_PLUGIN_TO_CLEAR_BED]):
+                self.nextItem = item
                 octoprint.plugin.call_plugin(ClearBedPlugin, "clear_bed", callback=self.clear_bed_success, error_callback=self.clear_bed_error)
             else:
                 bed_clearing_script = self._settings.get([CLEARING_SCRIPT_KEY]).split("\n")
                 self._printer.commands(bed_clearing_script, force=True)
-                self.clear_bed_success(self._identifier, self, None)
+                self.start_item(item)
+        else:
+            self.start_item(item)
 
 
     def state_json(self, changed=None):
